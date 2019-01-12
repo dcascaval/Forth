@@ -66,7 +66,7 @@ let operate stack token =
     | Stack stackop -> operate_stackop stack stackop
     | DOT ->
       match stack with 
-      | x :: xs -> printf "%d" x; [] (* Empty the stack and print. *)
+      | x :: xs -> printf "%d ok\n" x; [] (* Empty the stack and print. *)
       | _ -> failwith "Cannot return from empty stack"
 
 (* Main loop. *)
