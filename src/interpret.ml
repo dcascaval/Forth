@@ -10,7 +10,7 @@ type binop = ADD | SUB | MUL | DIV | MOD
 type stackop = DUP | SWAP | DROP
 
 type operator = Binop of binop | Stack of stackop | DOT
-type token = Value of int | Operator of operator
+type token = Value of int | Operator of operator | Symbol of string
 
 (* Two stacks: a program and data stack. *)
 type program = token list 
@@ -70,6 +70,6 @@ let operate stack token =
       | _ -> failwith "Cannot return from empty stack"
 
 (* Main loop. *)
-let evaluate program =
+let evaluate program definitions =
   List.fold ~init:[] ~f:(operate) program
 
