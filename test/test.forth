@@ -1,2 +1,3 @@
-: square DUP * ; 
-( comment ) 3 square . 
+: safedivide DUP 0 = IF DROP ELSE / THEN ;
+4 2 safedivide . 
+4 0 safedivide .
