@@ -12,7 +12,10 @@ type binop = ADD | SUB | MUL | DIV | MOD
 (* Data-based operations *)
 type stackop = DUP | SWAP | DROP | OVER | ROT
 
-type operator = Binop of binop | Stack of stackop | DOT
+(* I/O (really just o, right now) *)
+type output = DOT | EMIT | NEWLINE
+
+type operator = Binop of binop | Stack of stackop | Outop of output
 type token = Value of int | Operator of operator | Symbol of string
 
 (* Two stacks: a program and data stack. *)
@@ -27,10 +30,13 @@ let pp_binop =
 let pp_stackop = 
   function DUP -> "DUP" | SWAP -> "SWAP" | DROP -> "DROP" | OVER -> "OVER" | ROT -> "ROT"
 
+let pp_output = 
+  function DOT -> "." | EMIT -> "EMIT" | NEWLINE -> "CR"
+
 let pp_op = function 
   | Binop b -> pp_binop b 
   | Stack s -> pp_stackop s
-  | DOT -> "."
+  | Outop o -> pp_output o
 
 let pp_token = function 
   | Value v -> string_of_int v 
@@ -69,6 +75,13 @@ let operate_stackop stack stackop =
   | (ROT,  x::y::z::xs) -> y :: z :: x :: xs
   | _ -> invalid_op (Stack stackop)
 
+let operate_output data output =  
+  match output, data with 
+  | (DOT,  x :: xs) -> printf "%d " x
+  | (EMIT, x :: xs) -> printf "%s" (Char.to_string (Char.of_int_exn x))
+  | (NEWLINE, _)    -> printf "\n"
+  | _ -> invalid_op (Outop output)
+
 (* Dispatch action of the interpreter *)
 let operate defns (data, program) token = 
   match token with
@@ -78,10 +91,7 @@ let operate defns (data, program) token =
     match op with 
     | Binop binop -> (operate_binop data binop, program)
     | Stack stackop -> (operate_stackop data stackop, program)
-    | DOT ->
-      match data with 
-      | [x] -> printf "%d ok\n" x; ([],[]) (* Empty the stack and print. *)
-      | _ -> failwith "Cannot return from empty stack"
+    | Outop output -> operate_output data output; (data, program)
 
 (* Main loop. *)
 let evaluate program definitions =
@@ -93,4 +103,5 @@ let evaluate program definitions =
       let (data',prog'') = operate (data,prog') token in
       eval (data',prog'')
   in
-     eval ([],program)
+     eval ([],program);
+     printf ("ok\n");

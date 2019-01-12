@@ -27,7 +27,6 @@ type parse_state = {
   
   (* Comments get ignored entirely. *)
   let parse_comment = drop_including ")" 
-  let parse_dot = drop_including ";" 
 
   (* Parses a word definition *)
   let rec parse_defn state =  
@@ -51,9 +50,11 @@ type parse_state = {
         (* Remove source comments *)
         | "(" -> { state with tokens = parse_comment xs } 
         | ":" -> parse_defn state
-        (* Dot returns until the next semicolon. *)
-        | "." -> { state with tokens = parse_dot xs; 
-                   program = Operator DOT :: state.program }
+
+        (* Output operators *)
+        | "." ->    insert (Outop DOT)
+        | "EMIT" -> insert (Outop EMIT)
+        | "CR" ->   insert (Outop NEWLINE)
 
         (* Mathematical operators *)
         | "+" -> insert (Binop ADD) 
