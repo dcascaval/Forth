@@ -22,7 +22,7 @@ type parse_state = {
  (* We attempt to parse a number. Sometimes we fail. *)
   let parse_num num = 
     match int_of_string_opt num with
-      | Some n -> Interpret.Value n
+      | Some n -> Interpret.Value (Int32.of_int_exn n)
       | _ -> failwith (sprintf "Syntax error: unexpected token \"%s\"" num)
   
   (* Comments get ignored entirely. *)
@@ -62,6 +62,12 @@ type parse_state = {
         | "*" -> insert (Binop MUL) 
         | "/" -> insert (Binop DIV) 
         | "%" -> insert (Binop MOD) 
+        | "&" -> insert (Binop AND)
+        | "|" -> insert (Binop OR)
+        | "=" -> insert (Binop EQ)
+        | "<" -> insert (Binop LT)
+        | ">" -> insert (Binop GT)
+        | "invert" -> insert (Binop INVERT)
 
         (* Stack Operators *)
         | "DROP" ->  insert (Stack DROP) 
