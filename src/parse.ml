@@ -23,7 +23,7 @@ type parse_state = {
   let parse_num num = 
     match int_of_string_opt num with
       | Some n -> Interpret.Value n
-      | _ -> failwith (sprintf "Syntax error: unexpected token %s" num)
+      | _ -> failwith (sprintf "Syntax error: unexpected token \"%s\"" num)
   
   (* Comments get ignored entirely. *)
   let parse_comment = drop_including ")" 
@@ -66,6 +66,8 @@ type parse_state = {
         | "DROP" ->  insert (Stack DROP) 
         | "SWAP" ->  insert (Stack SWAP) 
         | "DUP"  ->  insert (Stack DUP)  
+        | "OVER" ->  insert (Stack OVER)
+        | "ROT"  ->  insert (Stack ROT)
       
         (* If we're here, it must be a number or a symbol. *)
         (* If it's not in the symbol table, we try to parse it as a number. *)

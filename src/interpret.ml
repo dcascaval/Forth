@@ -10,7 +10,7 @@ let say = prerr_endline
 type binop = ADD | SUB | MUL | DIV | MOD  
 
 (* Data-based operations *)
-type stackop = DUP | SWAP | DROP
+type stackop = DUP | SWAP | DROP | OVER | ROT
 
 type operator = Binop of binop | Stack of stackop | DOT
 type token = Value of int | Operator of operator | Symbol of string
@@ -25,7 +25,7 @@ let pp_binop =
   function ADD -> "+" | SUB -> "-" | MUL -> "*" | DIV -> "/" | MOD -> "%"
 
 let pp_stackop = 
-  function DUP -> "DUP" | SWAP -> "SWAP" | DROP -> "DROP"
+  function DUP -> "DUP" | SWAP -> "SWAP" | DROP -> "DROP" | OVER -> "OVER" | ROT -> "ROT"
 
 let pp_op = function 
   | Binop b -> pp_binop b 
@@ -62,9 +62,11 @@ let operate_binop stack binop =
 (* Interpret stack operation (modify or swap possibly multiple elements, generic) *)
 let operate_stackop stack stackop =
   match stackop, stack with  
-  | (DUP,  x::xs)    -> x :: x :: xs 
-  | (SWAP, x::y::xs) -> y :: x :: xs 
-  | (DROP, x::xs)    -> xs
+  | (DUP,  x::xs)       -> x :: x :: xs 
+  | (SWAP, x::y::xs)    -> y :: x :: xs 
+  | (DROP, x::xs)       -> xs
+  | (OVER, x::y::xs)    -> x :: y :: x :: xs 
+  | (ROT,  x::y::z::xs) -> y :: z :: x :: xs
   | _ -> invalid_op (Stack stackop)
 
 (* Dispatch action of the interpreter *)
