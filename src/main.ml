@@ -7,7 +7,7 @@ open Core
 let repl_evaluator () = 
   let open Parse in 
 
-  let empty = { tokens = []; program = []; defns = S.empty} in
+  let empty = { in_loop = false; tokens = []; program = []; defns = S.empty} in
 
   let rec repl ?state:(state = empty) () = 
     match parse_input_line state () with 

@@ -3,6 +3,7 @@ open Core
 module S = String.Map
 
 type parse_state = {
+  in_loop : bool; (* Assign special meaning to index *)
   tokens  : string list; (* Unparsed *)
   program : Interpret.program; (* Parsed *)
   defns   : (Interpret.program) String.Map.t (* Words *)
@@ -22,6 +23,13 @@ let clean_strings strings = strings
 let drop_including elem list =  
   (list |> List.drop_while ~f:(fun e -> e <> elem)
         |> List.drop) 1
+
+let split_on_elem elem list =
+  let (hd,tl) = List.split_while ~f:(fun x -> x <> elem) list in 
+  (hd,List.drop tl 1)
+
+let next_token_in_set list set =  
+  List.find list ~f:(fun e -> List.mem ~equal:String.equal set e)
 
 let remove_comments program =
   let (_,res) = List.fold program ~init:(false,[]) 
@@ -52,24 +60,27 @@ let remove_comments program =
   
   and parse_conditional state = 
     let open Interpret in
-    match state.tokens with 
-    | "IF" :: s1 :: "THEN" :: xs -> (* Simple if *)
-      let s1 = parse_token state s1 in
-      let op = Condition (s1,None) in
-      { state with tokens = xs; program = Operator op :: state.program }
-      (* If with a condition *)
-    | "IF" :: s1 :: "ELSE" :: s2 :: "THEN" :: xs -> 
-      let s1,s2 = parse_token state s1, parse_token state s2 in
-      let op = Condition (s1,Some s2) in
-      { state with tokens = xs; program = Operator op :: state.program }
-    | _ -> failwith (sprintf "Invalid Conditional: (%s)" (String.concat state.tokens))
+    match next_token_in_set (state.tokens) ["THEN";"ELSE"] with 
+    | Some "THEN" -> 
+      let (cond,rest) = split_on_elem "THEN" state.tokens in 
+      let s1 = parse { state with tokens = cond; program = [] } in 
+      let op = Condition (List.rev s1.program,None) in
+      { state with tokens = rest; program = Operator op :: state.program }
+    | Some "ELSE" -> 
+      let (cond,rest) = split_on_elem "THEN" state.tokens in 
+      let (c1,c2) = split_on_elem "ELSE" cond in 
+      let s1 = parse { state with tokens = c1; program = [] } in
+      let s2 = parse { state with tokens = c2; program = [] } in
+      let op = Condition (List.rev s1.program,Some (List.rev s2.program)) in
+      { state with tokens = rest; program = Operator op :: state.program }
+    | _ -> failwith (sprintf "Invalid Conditional: (%s)" (String.concat ~sep:" " state.tokens))
 
   and parse_loop state =
     let open Interpret in
     let loop_tokens = List.take_while ~f:(fun s -> s <> "LOOP") state.tokens in 
     let rest_tokens = drop_including "LOOP" state.tokens in
-    let parsed = List.map ~f:(fun tk -> if tk = "i" then INDEX else parse_token state tk) loop_tokens in
-    { state with tokens = rest_tokens; program = Operator (Loop (parsed)) :: state.program }
+    let parsed = parse { state with in_loop = true; tokens = loop_tokens; program = [] } in
+    { state with tokens = rest_tokens; program = Operator (Loop (List.rev parsed.program)) :: state.program }
 
   and parse_token state token = 
     let open Interpret in 
@@ -117,8 +128,11 @@ let remove_comments program =
         match token with
         (* Remove source comments *)
         | ":" -> parse_defn state
-        | "IF" -> parse_conditional state 
+        | "IF" -> parse_conditional { state with tokens = xs }
         | "DO" -> parse_loop { state with tokens = xs }
+        | "i" -> 
+          let parsed = if state.in_loop then INDEX else parse_token state token in 
+          { state with tokens = xs; program = parsed :: state.program }
         | _ -> 
           let parsed = parse_token state token in 
           { state with tokens = xs; program = parsed :: state.program }
@@ -137,7 +151,7 @@ let parse_file file : parse_state =
        |> List.map ~f:clean_strings
        |> List.concat 
        |> remove_comments
-       |> parse_line { tokens = []; program = []; defns = S.empty }
+       |> parse_line { in_loop = false; tokens = []; program = []; defns = S.empty }
        |> function state -> { state with program = List.rev state.program }
 
 let parse_input_line state () =

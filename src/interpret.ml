@@ -19,7 +19,7 @@ type operator =
   | Binop of binop 
   | Stack of stackop 
   | Outop of output 
-  | Condition of token * token option
+  | Condition of token list * token list option
   | Loop of token list
 
 and token = 
@@ -47,8 +47,8 @@ let pp_output =
 
 let rec pp_condition c1 c2 =  
   match c2 with 
-  | Some t -> sprintf "IF %s ELSE %s THEN" (pp_token c1) (pp_token t)
-  | None   -> sprintf "IF %s THEN" (pp_token c1)
+  | Some t -> sprintf "IF %s ELSE %s THEN" (pp_program c1) (pp_program t)
+  | None   -> sprintf "IF %s THEN" (pp_program c1)
 
 and pp_loop toks = sprintf "DO %s LOOP" (pp_program toks)
 
@@ -117,23 +117,36 @@ let operate_output data output =
 let operate_condition data (if_case,else_case) program = 
   match data with 
   | x :: xs ->
-    if x <> 0l then (xs,if_case :: program)
+    if x <> 0l then (xs,if_case @ program)
     else 
     (match else_case with 
-    | Some case -> (xs,case :: program)
+    | Some case -> (xs,case @ program)
     | None -> (xs, program))
   | _ -> invalid_op (Condition (if_case,else_case)) 
+
+(* recursively replace all of the index tokens. disallows nesting *)
+let rec replace_index_pass idx token = 
+  let map_condition = List.map ~f:(replace_index_pass idx) in
+  let fail_map = List.map ~f:(function INDEX -> failwith "Can't index nested loop." | x -> x) in 
+  match token with 
+  | INDEX -> Value idx
+  | Operator (Condition (a,None)) -> 
+      Operator (Condition (map_condition a,None))
+  | Operator (Condition (a,Some b)) -> 
+      Operator (Condition (map_condition a, Some (map_condition b)))
+  | Operator (Loop toks) ->
+      Operator (Loop (fail_map toks))
+  | x -> x 
 
 let rec operate_loop defns data body =
   if body = [] then data else (* Don't iterate an empty loop *)
   match data with 
   | start :: finish :: xs ->
     
-    
     (* Tail-recrsive loop *)
     let rec loop idx ldata = 
       if idx >= finish then ldata else 
-      let body' = List.map body ~f:(function INDEX -> Value idx | x -> x) in
+      let body' = List.map ~f:(replace_index_pass idx) body in
       let ldata' = eval defns (ldata,body') in 
       loop Int32.(idx + 1l) ldata'
     in 
