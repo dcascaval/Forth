@@ -10,9 +10,7 @@ type parse_state = {
 
 let say = prerr_endline
 
-let print_tokens toks = 
-  "[" ^ String.concat ~sep:", " toks ^ "]"
-
+let print_tokens toks =  "[" ^ String.concat ~sep:", " toks ^ "]"
 
 let open_file f = In_channel.with_file f ~f:In_channel.input_lines 
 
@@ -66,6 +64,13 @@ let remove_comments program =
       { state with tokens = xs; program = Operator op :: state.program }
     | _ -> failwith (sprintf "Invalid Conditional: (%s)" (String.concat state.tokens))
 
+  and parse_loop state =
+    let open Interpret in
+    let loop_tokens = List.take_while ~f:(fun s -> s <> "LOOP") state.tokens in 
+    let rest_tokens = drop_including "LOOP" state.tokens in
+    let parsed = List.map ~f:(fun tk -> if tk = "i" then INDEX else parse_token state tk) loop_tokens in
+    { state with tokens = rest_tokens; program = Operator (Loop (parsed)) :: state.program }
+
   and parse_token state token = 
     let open Interpret in 
     let insert op = Operator op in 
@@ -86,7 +91,7 @@ let remove_comments program =
       | "=" -> insert (Binop EQ)
       | "<" -> insert (Binop LT)
       | ">" -> insert (Binop GT)
-      | "invert" -> insert (Binop INVERT)
+      | "INVERT" -> insert (Binop INVERT)
 
       (* Stack Operators *)
       | "DROP" ->  insert (Stack DROP) 
@@ -113,6 +118,7 @@ let remove_comments program =
         (* Remove source comments *)
         | ":" -> parse_defn state
         | "IF" -> parse_conditional state 
+        | "DO" -> parse_loop { state with tokens = xs }
         | _ -> 
           let parsed = parse_token state token in 
           { state with tokens = xs; program = parsed :: state.program }

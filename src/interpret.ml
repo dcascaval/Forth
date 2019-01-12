@@ -20,11 +20,13 @@ type operator =
   | Stack of stackop 
   | Outop of output 
   | Condition of token * token option
+  | Loop of token list
 
 and token = 
   | Value of int32 
   | Operator of operator 
   | Symbol of string
+  | INDEX 
 
 (* Two stacks: a program and data stack. *)
 type program = token list 
@@ -48,18 +50,23 @@ let rec pp_condition c1 c2 =
   | Some t -> sprintf "IF %s ELSE %s THEN" (pp_token c1) (pp_token t)
   | None   -> sprintf "IF %s THEN" (pp_token c1)
 
+and pp_loop toks = sprintf "DO %s LOOP" (pp_program toks)
+
 and pp_op = function 
   | Binop b -> pp_binop b 
   | Stack s -> pp_stackop s
   | Outop o -> pp_output o
   | Condition (c1,c2) -> pp_condition c1 c2
+  | Loop tokens -> pp_loop tokens
 
 and pp_token = function 
   | Value v -> Int32.to_string v 
   | Operator o -> pp_op o
   | Symbol s -> s
+  | INDEX -> "i"
 
-let pp_program tokens = "[" ^ String.concat ~sep:"," (List.map ~f:pp_token tokens) ^ "]"
+and pp_program tokens = "[" ^ String.concat ~sep:"," (List.map ~f:pp_token tokens) ^ "]"
+
 let pp_data data = "[" ^ String.concat ~sep:"," (List.map ~f:Int32.to_string data) ^ "]"
 
 let invalid_op op = 
@@ -117,27 +124,46 @@ let operate_condition data (if_case,else_case) program =
     | None -> (xs, program))
   | _ -> invalid_op (Condition (if_case,else_case)) 
 
+let rec operate_loop defns data body =
+  if body = [] then data else (* Don't iterate an empty loop *)
+  match data with 
+  | start :: finish :: xs ->
+    
+    
+    (* Tail-recrsive loop *)
+    let rec loop idx ldata = 
+      if idx >= finish then ldata else 
+      let body' = List.map body ~f:(function INDEX -> Value idx | x -> x) in
+      let ldata' = eval defns (ldata,body') in 
+      loop Int32.(idx + 1l) ldata'
+    in 
+    loop start xs
+
+  | _ -> invalid_op (Loop (body)) (* No bounds on stack. *)
+
 (* Dispatch action of the interpreter *)
-let operate defns (data, program) token = 
-  match token with
-  | Value v -> (v :: data, program)
-  | Symbol s -> (data, S.find_exn defns s @ program) 
-  | Operator op -> 
+and operate defns (data, program) = 
+  match program with
+  | [] -> (data, program)
+  | INDEX :: program' -> failwith "Index out of loop." 
+  | Value v  :: program' -> (v :: data, program')
+  | Symbol s :: program' -> (data, S.find_exn defns s @ program') 
+  | Operator op :: program' -> 
     match op with 
-    | Binop binop -> (operate_binop data binop, program)
-    | Stack stackop -> (operate_stackop data stackop, program)
-    | Outop output -> (operate_output data output, program)
-    | Condition (c1,c2) -> (operate_condition data (c1,c2) program)
+    | Binop binop -> (operate_binop data binop, program')
+    | Stack stackop -> (operate_stackop data stackop, program')
+    | Outop output -> (operate_output data output, program')
+    | Condition (c1,c2) -> (operate_condition data (c1,c2) program')
+    | Loop body -> (operate_loop defns data body, program')
+
+and eval definitions (data,prog) = 
+  match prog with 
+  | [] -> data
+  | _ ->
+    let (data',prog') = operate definitions (data,prog) in
+    eval definitions (data',prog')
 
 (* Main loop. *)
-let evaluate program definitions =
-  let operate = operate definitions in
-  let rec eval (data,prog) = 
-    match prog with 
-    | [] -> ()
-    | token :: prog' ->
-      let (data',prog'') = operate (data,prog') token in
-      eval (data',prog'')
-  in
-     eval ([],program);
-     printf ("ok\n");
+and evaluate program definitions =
+  let _ = eval definitions ([],program) in (* Discard data at end of program *)
+  printf ("ok\n");
