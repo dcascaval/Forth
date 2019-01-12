@@ -1,5 +1,8 @@
 
 open Core
+module S = String.Map
+
+let say = prerr_endline
 
 (*** Type definitions ***)
 
@@ -29,6 +32,14 @@ let pp_op = function
   | Stack s -> pp_stackop s
   | DOT -> "."
 
+let pp_token = function 
+  | Value v -> string_of_int v 
+  | Operator o -> pp_op o
+  | Symbol s -> s
+
+let pp_program tokens = "[" ^ String.concat ~sep:"," (List.map ~f:pp_token tokens) ^ "]"
+let pp_data data = "[" ^ String.concat ~sep:"," (List.map ~f:string_of_int data) ^ "]"
+
 let invalid_op op = 
   failwith (sprintf "program doesn't have enough tokens to perform operation (%s)" (pp_op op))
 
@@ -57,19 +68,27 @@ let operate_stackop stack stackop =
   | _ -> invalid_op (Stack stackop)
 
 (* Dispatch action of the interpreter *)
-let operate stack token = 
+let operate defns (data, program) token = 
   match token with
-  | Value v -> v :: stack 
+  | Value v -> (v :: data, program)
+  | Symbol s -> (data, S.find_exn defns s @ program) 
   | Operator op -> 
     match op with 
-    | Binop binop -> operate_binop stack binop 
-    | Stack stackop -> operate_stackop stack stackop
+    | Binop binop -> (operate_binop data binop, program)
+    | Stack stackop -> (operate_stackop data stackop, program)
     | DOT ->
-      match stack with 
-      | x :: xs -> printf "%d ok\n" x; [] (* Empty the stack and print. *)
+      match data with 
+      | [x] -> printf "%d ok\n" x; ([],[]) (* Empty the stack and print. *)
       | _ -> failwith "Cannot return from empty stack"
 
 (* Main loop. *)
 let evaluate program definitions =
-  List.fold ~init:[] ~f:(operate) program
-
+  let operate = operate definitions in
+  let rec eval (data,prog) = 
+    match prog with 
+    | [] -> ()
+    | token :: prog' ->
+      let (data',prog'') = operate (data,prog') token in
+      eval (data',prog'')
+  in
+     eval ([],program)

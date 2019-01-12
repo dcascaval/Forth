@@ -1,1 +1,2 @@
-( comment ) 2 3 + . ;
+: square DUP * ; 
+( comment ) 3 square . 

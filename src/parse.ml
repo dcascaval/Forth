@@ -28,7 +28,7 @@ type parse_state = {
   (* Comments get ignored entirely. *)
   let parse_comment = drop_including ")" 
   let parse_dot = drop_including ";" 
-  
+
   (* Parses a word definition *)
   let rec parse_defn state =  
     let defn_tokens = List.take_while ~f:(fun s -> s <> ";") state.tokens in 
@@ -36,7 +36,7 @@ type parse_state = {
     match defn_tokens with 
     | ":" :: name :: subprogram -> 
        let substate = parse {state with tokens = subprogram; program = []} in
-       let table = S.update substate.defns name ~f:(function _ -> substate.program) in 
+       let table = S.update substate.defns name ~f:(function _ -> List.rev substate.program) in 
        { state with tokens = rest_tokens; defns = table }
     | _ -> failwith "Empty definition (: ;)"
 
