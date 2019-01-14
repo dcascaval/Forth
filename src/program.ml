@@ -2,7 +2,7 @@
 open Core
 module S = String.Map
 
-(*** Type definitions ***)
+(*** Type definitions & printing functions ***)
 
 (* Mathematical Operators *)
 type binop = ADD | SUB | MUL | DIV | MOD | LT | GT | EQ | AND | OR | INVERT

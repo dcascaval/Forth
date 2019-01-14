@@ -12,3 +12,9 @@ To Compile:
 
 To Run:
   `./finth test/test.forth` 
+
+Supported interpreter-defined tokens:
+  * `+`,`-`, `*`, `/`,`%` (Arithmetic)
+  * `&`,`|`,`=`,`<`,`>`,`INVERT` (Comparsions and Booleans)
+  * `DROP`,`SWAP`,`DUP`,`ROT`,`OVER` (Stack manipulation)
+  * `.`,`EMIT`,`CR` (Output)
