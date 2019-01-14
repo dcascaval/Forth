@@ -2,27 +2,20 @@
 open Interpret
 open Core
 
-(* No command line args quite yet. *)
-
-let repl_evaluator () = 
+(* Evaluate a file. *)
+let file_evaluator filename = 
   let open Parse in 
+  let state = parse_file filename in 
+  Interpret.evaluate state.program state.keywords
 
-  let empty = { in_loop = false; tokens = []; program = []; defns = S.empty} in
+(* Command-line argument *)
+let command =
+  let open Command.Let_syntax in
+  Command.basic
+    ~summary:"Interprets a forth program in a file."
+    [%map_open
+      let filename = anon ("filename" %: string) in
+      fun () -> file_evaluator filename ]
 
-  let rec repl ?state:(state = empty) () = 
-    match parse_input_line state () with 
-      | Some st -> 
-        (* prerr_endline (Interpret.pp_program st.program); *)
-        Interpret.evaluate st.program st.defns;
-        repl ~state:st () 
-      | None -> ()
-  in
-  repl ()
-
-let file_evaluator () = 
-  let open Parse in 
-  let state = parse_file "test/test.forth" in 
-  Interpret.evaluate state.program state.defns
-
-let () =  
-  file_evaluator ()  
+let () = 
+  Command.run command 

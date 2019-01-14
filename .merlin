@@ -2,3 +2,4 @@ S main
 B _build/**
 
 PKG core
+PKG ppx_jane

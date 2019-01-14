@@ -1,81 +1,10 @@
 
 open Core
-module S = String.Map
+open Program
 
-let say = prerr_endline
+(*** Interpreter ***)
 
-(*** Type definitions ***)
-
-(* Mathematical Operators *)
-type binop = ADD | SUB | MUL | DIV | MOD | LT | GT | EQ | AND | OR | INVERT
-
-(* Data-based operations *)
-type stackop = DUP | SWAP | DROP | OVER | ROT
-
-(* I/O (really just o, right now) *)
-type output = DOT | EMIT | NEWLINE
-
-type operator = 
-  | Binop of binop 
-  | Stack of stackop 
-  | Outop of output 
-  | Condition of token list * token list option
-  | Loop of token list
-
-and token = 
-  | Value of int32 
-  | Operator of operator 
-  | Symbol of string
-  | INDEX 
-
-(* Two stacks: a program and data stack. *)
-type program = token list 
-type stack = int32 list 
-
-
-(*** Printing functions, for convenience. ***)
-let pp_binop = 
-  function | ADD -> "+" | SUB -> "-" | MUL -> "*" | DIV -> "/" | MOD -> "%" 
-           | AND -> "&" | OR  -> "|" | LT  -> "<" | GT  -> ">" | EQ  -> "="
-           | INVERT -> "invert" 
-
-let pp_stackop = 
-  function DUP -> "DUP" | SWAP -> "SWAP" | DROP -> "DROP" | OVER -> "OVER" | ROT -> "ROT"
-
-let pp_output = 
-  function DOT -> "." | EMIT -> "EMIT" | NEWLINE -> "CR"
-
-let rec pp_condition c1 c2 =  
-  match c2 with 
-  | Some t -> sprintf "IF %s ELSE %s THEN" (pp_program c1) (pp_program t)
-  | None   -> sprintf "IF %s THEN" (pp_program c1)
-
-and pp_loop toks = sprintf "DO %s LOOP" (pp_program toks)
-
-and pp_op = function 
-  | Binop b -> pp_binop b 
-  | Stack s -> pp_stackop s
-  | Outop o -> pp_output o
-  | Condition (c1,c2) -> pp_condition c1 c2
-  | Loop tokens -> pp_loop tokens
-
-and pp_token = function 
-  | Value v -> Int32.to_string v 
-  | Operator o -> pp_op o
-  | Symbol s -> s
-  | INDEX -> "i"
-
-and pp_program tokens = "[" ^ String.concat ~sep:"," (List.map ~f:pp_token tokens) ^ "]"
-
-let pp_data data = "[" ^ String.concat ~sep:"," (List.map ~f:Int32.to_string data) ^ "]"
-
-let invalid_op op = 
-  failwith (sprintf "program doesn't have enough tokens to perform operation (%s)" (pp_op op))
-
-
-(*** Actual interpreter! ***)
-
-(* Interpret binop (perform simple computation on what must be numbers) *)
+(* Interpret binop (perform simple computation on what must be numbers), and put it back on the stack *)
 let operate_binop stack binop =
   match binop, stack with
   | INVERT, a :: xs -> (Int32.bit_not a) :: xs
@@ -107,6 +36,7 @@ let operate_stackop stack stackop =
   | (ROT,  x::y::z::xs) -> y :: z :: x :: xs
   | _ -> invalid_op (Stack stackop)
 
+(* Interpret I/O operation. Might or might not modify data stack. *)
 let operate_output data output =  
   match output, data with 
   | (DOT,  x :: xs) -> printf "%s " (Int32.to_string x); Out_channel.flush Out_channel.stdout; xs
@@ -114,36 +44,41 @@ let operate_output data output =
   | (NEWLINE, _)    -> printf "\n"; Out_channel.flush Out_channel.stdout; data
   | _ -> invalid_op (Outop output)
 
+(* Interprets a conditional (checks if false, adjusts program stack with according case.) *)
 let operate_condition data (if_case,else_case) program = 
   match data with 
   | x :: xs ->
-    if x <> 0l then (xs,if_case @ program)
-    else 
+    if x <> 0l then (xs,if_case @ program) else 
     (match else_case with 
     | Some case -> (xs,case @ program)
     | None -> (xs, program))
   | _ -> invalid_op (Condition (if_case,else_case)) 
 
-(* recursively replace all of the index tokens. disallows nesting *)
-let rec replace_index_pass idx token = 
-  let map_condition = List.map ~f:(replace_index_pass idx) in
-  let fail_map = List.map ~f:(function INDEX -> failwith "Can't index nested loop." | x -> x) in 
-  match token with 
-  | INDEX -> Value idx
-  | Operator (Condition (a,None)) -> 
-      Operator (Condition (map_condition a,None))
-  | Operator (Condition (a,Some b)) -> 
-      Operator (Condition (map_condition a, Some (map_condition b)))
-  | Operator (Loop toks) ->
-      Operator (Loop (fail_map toks))
-  | x -> x 
 
+(* Interpets a loop (replaces all instances of INDEX with a value on each pass). *)
 let rec operate_loop defns data body =
+
+  (* recursively replace all of the index tokens. disallows nesting *)
+  let rec replace_index_pass idx token = 
+    let map_condition = List.map ~f:(replace_index_pass idx) in
+    let fail_map = List.map ~f:(function INDEX -> failwith "Can't index nested loop." | x -> x) in 
+    match token with 
+    | INDEX -> Value idx
+    | Operator (Condition (a,None)) -> 
+        Operator (Condition (map_condition a,None))
+    | Operator (Condition (a,Some b)) -> 
+        Operator (Condition (map_condition a, Some (map_condition b)))
+    | Operator (Loop toks) ->
+        Operator (Loop (fail_map toks))
+    | x -> x 
+  in
+
+  (* Actual loop operation. *)
   if body = [] then data else (* Don't iterate an empty loop *)
   match data with 
   | start :: finish :: xs ->
     
-    (* Tail-recrsive loop *)
+    (* Tail-recursive loop interpretation function.*)
     let rec loop idx ldata = 
       if idx >= finish then ldata else 
       let body' = List.map ~f:(replace_index_pass idx) body in
@@ -154,8 +89,8 @@ let rec operate_loop defns data body =
 
   | _ -> invalid_op (Loop (body)) (* No bounds on stack. *)
 
-(* Dispatch action of the interpreter *)
-and operate defns (data, program) = 
+(* Dispatch action of the interpreter to the appropriate sub-function  *)
+and operate (defns : definition_map) ((data : stack), (program : program)) = 
   match program with
   | [] -> (data, program)
   | INDEX :: program' -> failwith "Index out of loop." 
@@ -169,6 +104,8 @@ and operate defns (data, program) =
     | Condition (c1,c2) -> (operate_condition data (c1,c2) program')
     | Loop body -> (operate_loop defns data body, program')
 
+(* Provides a loop that evaluates a program with a given set of definitions in
+ * its entirety, and returns the data-stack when it is done. *)
 and eval definitions (data,prog) = 
   match prog with 
   | [] -> data
@@ -177,6 +114,6 @@ and eval definitions (data,prog) =
     eval definitions (data',prog')
 
 (* Main loop. *)
-and evaluate program definitions =
+and evaluate (program : program) (definitions : definition_map) =
   let _ = eval definitions ([],program) in (* Discard data at end of program *)
-  printf ("ok\n");
+  printf ("ok\n")

@@ -2,17 +2,31 @@
 open Core
 module S = String.Map
 
+type token = string 
+type token_stream = string list
+
+(* Main abstraction in this mini-parser. This represents an in-progress part 
+ * of parsing. We maintain tokens as our current parse stream state, program 
+ * as our so-far-parsed progam (reversed), and definitions as a mapping from 
+ * defined keywords to their substitution programs. *)
 type parse_state = {
-  in_loop : bool; (* Assign special meaning to index *)
-  tokens  : string list; (* Unparsed *)
-  program : Interpret.program; (* Parsed *)
-  defns   : (Interpret.program) String.Map.t (* Words *)
+  tokens  : token_stream; (* Unparsed strings *)
+  program : Program.program; (* Parsed strings *)
+  defns   : (Program.program) String.Map.t; (* New word definitions *)
+  in_loop : bool; (* State variable, assigns special meaning to index *)
 }
 
-let say = prerr_endline
+(* Information returned from parser to main program. *)
+type parse_result = { 
+  program : Program.program; (* Program to Program. *)
+  keywords: (Program.program) String.Map.t  (* Finalized word definitions. *)
+}
+
+(**************  Helper Functions ***************)
 
 let print_tokens toks =  "[" ^ String.concat ~sep:", " toks ^ "]"
 
+(* Wrapper to open file and split on newline *)
 let open_file f = In_channel.with_file f ~f:In_channel.input_lines 
 
 (* Strip whitespace and remove empties in prep for parsing *)
@@ -24,42 +38,51 @@ let drop_including elem list =
   (list |> List.drop_while ~f:(fun e -> e <> elem)
         |> List.drop) 1
 
+(* Splits a list on the next occurrence of an element. *)
 let split_on_elem elem list =
   let (hd,tl) = List.split_while ~f:(fun x -> x <> elem) list in 
   (hd,List.drop tl 1)
 
+(* Finds which token in a set occurs next in a list. *)
 let next_token_in_set list set =  
   List.find list ~f:(fun e -> List.mem ~equal:String.equal set e)
 
-let remove_comments program =
-  let (_,res) = List.fold program ~init:(false,[]) 
+(* Parses a token stream to remove all comments and delimiting characters. *)
+let remove_comments (program : token_stream) : token_stream =
+  let (_,res) = List.fold program ~init:(0,[]) 
   ~f:(fun (drop,ls) e -> 
     match e with 
-    | "(" -> (true,ls)
-    | ")" -> (false,ls)
-    | _ -> let ls' = if drop then ls else e::ls in (drop,ls')) in
+    | "(" -> (drop + 1,ls)
+    | ")" -> ((if drop > 0 then drop - 1 else drop),ls)
+    | _ -> let ls' = if drop > 0 then ls else e::ls in (drop,ls')) in
     List.rev res
 
- (* We attempt to parse a number. Sometimes we fail. *)
-  let parse_num num = 
-    match int_of_string_opt num with
-      | Some n -> Interpret.Value (Int32.of_int_exn n)
-      | _ -> failwith (sprintf "Syntax error: unexpected token %s" num)
 
-  (* Parses a word definition *)
+(**************  Main Parser Functions ***************)
+
+ (* Parse a number, if we can. *)
+  let parse_num num =
+    match int_of_string_opt num with
+      | Some n -> Some (Program.Value (Int32.of_int_exn n))
+      | None -> None
+
+  (* Parse a word definition. Collects all tokens up to the semicolon following 
+   * the current location in the stream, and updates the `defns` entry in the 
+   * returned parse state *)
   let rec parse_defn state =  
-    let defn_tokens = List.take_while ~f:(fun s -> s <> ";") state.tokens in 
-    let rest_tokens = drop_including ";" state.tokens in
+    let (defn_tokens, rest) = split_on_elem ";" state.tokens in
     match defn_tokens with 
     | ":" :: name :: subprogram -> 
        let substate = parse {state with tokens = subprogram; program = []} in
        let table = S.update substate.defns name ~f:(function _ -> List.rev substate.program) in 
-       (* say (sprintf "Adding %s : %s" name (Interpret.pp_program (S.find_exn table name))); *)
-       { state with tokens = rest_tokens; defns = table }
+       { state with tokens = rest; defns = table }
     | _ -> failwith "Empty definition (: ;)"
   
+  (* Parse a conditional (IF ?ELSE THEN) statement. Detects if an ELSE is present before
+   * the next THEN in the stream in order to determine whether to include an 'else' clause
+   * in the conditional token. If no following 'THEN' is found, an error is thrown. *)
   and parse_conditional state = 
-    let open Interpret in
+    let open Program in
     match next_token_in_set (state.tokens) ["THEN";"ELSE"] with 
     | Some "THEN" -> 
       let (cond,rest) = split_on_elem "THEN" state.tokens in 
@@ -73,17 +96,23 @@ let remove_comments program =
       let s2 = parse { state with tokens = c2; program = [] } in
       let op = Condition (List.rev s1.program,Some (List.rev s2.program)) in
       { state with tokens = rest; program = Operator op :: state.program }
-    | _ -> failwith (sprintf "Invalid Conditional: (%s)" (String.concat ~sep:" " state.tokens))
+    | _ -> failwith (sprintf "Unfinished Conditional: (%s)" (String.concat ~sep:" " state.tokens))
 
+ (* Parse a loop definition (do-loops as described at:
+     https://skilldrick.github.io/easyforth/#conditionals-and-loops
+    This allows a simple incrementing loop from two range bounds and creates "i" as a special 
+    token character within the loop body that represens the index. Critically, this does not 
+    extend to nested loops, and the inner's loop's index will take precedence. *)
   and parse_loop state =
-    let open Interpret in
+    let open Program in
     let loop_tokens = List.take_while ~f:(fun s -> s <> "LOOP") state.tokens in 
     let rest_tokens = drop_including "LOOP" state.tokens in
     let parsed = parse { state with in_loop = true; tokens = loop_tokens; program = [] } in
     { state with tokens = rest_tokens; program = Operator (Loop (List.rev parsed.program)) :: state.program }
 
-  and parse_token state token = 
-    let open Interpret in 
+  (** Parse a single token. Requires current parse_state for definition access. *)
+  and parse_token state (token : token) = 
+    let open Program in 
     let insert op = Operator op in 
     match token with
       (* Output operators *)
@@ -115,12 +144,14 @@ let remove_comments program =
       (* If it's not in the symbol table, we try to parse it as a number. *)
       | sym ->
           if S.mem state.defns sym then Symbol sym 
-          else (parse_num sym)
+          else match parse_num sym with
+           | Some parsed -> parsed
+           | None -> failwith (sprintf "Syntax error: unexpected token %s" sym)
 
 
   (* Comments have been removed, and the whole program is one continuous stream. *)
   and parse state =
-    let open Interpret in
+    let open Program in
     match state.tokens with 
     | [] -> state
     | token :: xs -> 
@@ -140,20 +171,20 @@ let remove_comments program =
       parse state'
 
 
-let parse_line state (tokens : string list) = 
-  (* say (print_tokens tokens); *)
-  parse { state with tokens } 
+let parse_line state (tokens : string list) =  parse { state with tokens } 
     
-(* Open up a forth file and parse it into our interpreter's IR. *)
-let parse_file file : parse_state =   
+(** Main loop. Opens up a file and returns a completed parse_state **)
+let parse_file file : parse_result =   
   file |> open_file
        |> List.map ~f:(String.split ~on:' ')
        |> List.map ~f:clean_strings
        |> List.concat 
        |> remove_comments
-       |> parse_line { in_loop = false; tokens = []; program = []; defns = S.empty }
-       |> function state -> { state with program = List.rev state.program }
+       |> parse_line { tokens = []; program = []; defns = S.empty; in_loop = false;  }
+       |> function (state : parse_state) ->
+          { program = List.rev state.program; keywords = state.defns }
 
+(* Parses a single line of input with a parse_state and returns the updated state. Useful for REPL. *)
 let parse_input_line state () =
   match In_channel.input_line In_channel.stdin with
   | Some s -> 

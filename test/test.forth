@@ -1,5 +1,5 @@
 
-( simple operations )
+( simple operations : ( 5,4 ) * )
 2 3 + .
 11 7 - . 
 
